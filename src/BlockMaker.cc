@@ -192,7 +192,7 @@ void BlockMaker::addRawgbt(const char *str, size_t len) {
 
   const uint256 gbtHash = uint256S(r["gbthash"].str());
   if (rawGbtMap_.find(gbtHash) != rawGbtMap_.end()) {
-    LOG(ERROR) << "already exist raw gbt, ingore: " << gbtHash.ToString();
+    LOG(ERROR) << "already exist raw gbt, ignore: " << gbtHash.ToString();
     return;
   }
 
@@ -551,11 +551,7 @@ void BlockMaker::processSolvedShare(rd_kafka_message_t *rkmessage) {
   const string blockHex = EncodeHexBlock(newblk);
   submitBlockNonBlocking(blockHex);  // using thread
 
-#ifdef CHAIN_TYPE_BCH
-  CAmount coinbaseValue = newblk.vtx[0]->GetValueOut().GetSatoshis();
-#else
-  CAmount coinbaseValue = newblk.vtx[0]->GetValueOut();
-#endif
+  uint64_t coinbaseValue = AMOUNT_SATOSHIS(newblk.vtx[0]->GetValueOut());
 
   // save to DB, using thread
   saveBlockToDBNonBlocking(foundBlock, blkHeader,

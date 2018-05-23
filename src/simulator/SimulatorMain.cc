@@ -35,7 +35,7 @@
 #include <libconfig.h++>
 #include <event2/thread.h>
 
-#include <zmq.hpp>
+#include "zmq.hpp"
 
 #include "Utils.h"
 #include "StratumClient.h"
@@ -89,7 +89,7 @@ int main(int argc, char **argv) {
   FLAGS_stop_logging_if_full_disk = true;
 
   // Read the file. If there is an error, report it and exit.
-  Config cfg;
+  libconfig::Config cfg;
   try
   {
     cfg.readFile(optConf);

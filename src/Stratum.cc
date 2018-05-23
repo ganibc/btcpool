@@ -28,6 +28,7 @@
 #include <script/script.h>
 #include <uint256.h>
 #include <util.h>
+#include <pubkey.h>
 
 #include "Utils.h"
 #include "bytom/bh_shared.h"
@@ -611,7 +612,7 @@ bool StratumJob::initFromGbt(const char *gbt, const string &poolCoinbaseInfo,
 
     // check coinbase tx size
     if (coinbaseTpl.size() >= COINBASE_TX_MAX_SIZE) {
-      LOG(FATAL) << "conbase tx size " << coinbaseTpl.size()
+      LOG(FATAL) << "coinbase tx size " << coinbaseTpl.size()
       << " is over than max " << COINBASE_TX_MAX_SIZE;
       return false;
     }
