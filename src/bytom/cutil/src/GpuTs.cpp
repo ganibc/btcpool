@@ -1,80 +1,97 @@
+#include <iostream>
+#include <cstdio>
+#include <map>
+#include <mutex>
 #include "GpuTs.h"
 #include "BytomPoW.h"
-#include "sha3.h"
-#include <time.h>
-#include <cstdio>
-#include <algorithm>
-#include <iostream>
-#include <map>
-#include <cstring>
+#include "seed.h"
+#include <cuda_runtime.h>
+#include "cublas_v2.h"
+#include <chrono>
 
-BytomMatList* matList_int8;
+using namespace std;
+
+BytomMatList8* matList_int8;
 BytomMatListGpu* matListGpu_int8;
-
-#define TEST_NUM 5
-
-static inline void extend( uint32_t* exted, uint8_t *g_seed){
-
-  sha3_ctx *ctx = ( sha3_ctx*)calloc( 1, sizeof( *ctx));
-  uint8_t seedHash[ 4][ 32];
-
-  std::copy( g_seed, g_seed + 32, seedHash[ 0]);
-
-  for( int i = 0; i < 3; ++i) {
-
-    rhash_sha3_256_init( ctx);
-    rhash_sha3_update( ctx, seedHash[ i], 32);
-    rhash_sha3_final( ctx, seedHash[ i+1]);
-  }
-
-  for( int i = 0; i < 32; ++i) {
-
-    exted[ i] =  ( seedHash[ i/8][ ( i*4+3)%32]<<24) +
-      ( seedHash[ i/8][ ( i*4+2)%32]<<16) +
-      ( seedHash[ i/8][ ( i*4+1)%32]<<8) +
-      seedHash[ i/8][ ( i*4)%32];
-  }
-
-  free( ctx);
-}
-
-static void init_seed(Words32 &seed, uint32_t _seed[32])
-{
-  for (int i = 0; i < 16; i++)
-    seed.lo.w[i] = _seed[i];
-  for (int i = 0; i < 16; i++)
-    seed.hi.w[i] = _seed[16 + i];
-}
-
-
 uint8_t result[32] = {0};
-uint8_t seedCache[32] = {0};
-cublasHandle_t handle;
+map <vector<uint8_t>, BytomMatListGpu*> seedCache;
+static const int cacheSize = 42; //"Answer to the Ultimate Question of Life, the Universe, and Everything"
+mutex mtx;
 
-uint8_t *GpuTs(uint8_t blockheader[32], uint8_t seed[32]){
-     if(memcmp(seedCache, seed, 32) != 0){
+uint8_t *SimdTs(uint8_t blockheader[32], uint8_t seed[32]){
+    mtx.lock();
+    auto s1 = chrono::high_resolution_clock::now();
+
+    vector<uint8_t> seedVec(seed, seed + 32);
+
+    if(seedCache.find(seedVec) != seedCache.end()) {
+        // printf("\t---%s---\n", "Seed already exists in the cache.");
+        matListGpu_int8 = seedCache[seedVec];
+    } else {
         uint32_t exted[32];
-        extend(exted, seed);
+        extend(exted, seed); // extends seed to exted
+        auto s2 = chrono::high_resolution_clock::now();
+        auto d1 = s2 - s1;
+        std::cout << "d1 duration: " << chrono::duration_cast<chrono::microseconds>(d1).count() << " micros\n";
+
         Words32 extSeed;
         init_seed(extSeed, exted);
-        if (matList_int8 != nullptr) {
-           delete  matList_int8;
-        }
-        matList_int8=new BytomMatList;
-        initMatVec(matList_int8->matVec, extSeed);
-        if (matListGpu_int8 != nullptr) {
-                delete matListGpu_int8;
-        }
+        auto s3 = chrono::high_resolution_clock::now();
+        auto d2 = s3 - s2;
+        std::cout << "d2 duration: " << chrono::duration_cast<chrono::microseconds>(d2).count() << " micros\n";
+
+        matList_int8 = new BytomMatList8;
+        matList_int8->init(extSeed);
+        auto s4 = chrono::high_resolution_clock::now();
+        auto d3 = s4 - s3;
+        std::cout << "d3 duration: " << chrono::duration_cast<chrono::microseconds>(d3).count() << " micros\n";
+
         matListGpu_int8=new BytomMatListGpu;
+        auto s5 = chrono::high_resolution_clock::now();
+        auto d4 = s5 - s4;
+        std::cout << "d4 duration: " << chrono::duration_cast<chrono::microseconds>(d4).count() << " micros\n";
+
         initMatVecGpu(matListGpu_int8, matList_int8);
-        cublasStatus_t stat = cublasCreate(&handle);
-        if (stat != CUBLAS_STATUS_SUCCESS){
-          std::cerr<<"Fail to Create CuBlas Handle."<<std::endl;
-          exit(EXIT_FAILURE);
-        }
-        memcpy(seedCache, seed, 32);
+        auto s6 = chrono::high_resolution_clock::now();
+        auto d5 = s6 - s5;
+        std::cout << "d5 duration: " << chrono::duration_cast<chrono::microseconds>(d5).count() << " micros\n";
+
+        seedCache.insert(make_pair(seedVec, matListGpu_int8));
+
+        delete matList_int8;
     }
+    auto s7 = chrono::high_resolution_clock::now();
+    // auto d6 = s7 - s6;
+    // std::cout << "d6 duration: " << chrono::duration_cast<chrono::microseconds>(d6).count() << " micros\n";
+
+    cublasHandle_t handle;
+    cublasStatus_t stat = cublasCreate(&handle);
+    if (stat != CUBLAS_STATUS_SUCCESS){
+        std::cerr<<"Fail to Create CuBlas Handle."<<std::endl;
+        exit(EXIT_FAILURE);
+    }
+    auto s8 = chrono::high_resolution_clock::now();
+    auto d7 = s8 - s7;
+    std::cout << "d7 duration: " << chrono::duration_cast<chrono::microseconds>(d7).count() << " micros\n";
+
     iter_mineBytom(blockheader, 32, result, handle);
+    auto s9 = chrono::high_resolution_clock::now();
+    auto d8 = s9 - s8;
+    std::cout << "d8 duration: " << chrono::duration_cast<chrono::microseconds>(d8).count() << " micros\n";
+
+    auto startSimdTs = chrono::high_resolution_clock::now();
+    if(seedCache.size() > cacheSize) {
+        for(map<vector<uint8_t>, BytomMatListGpu*>::iterator it=seedCache.begin(); it!=seedCache.end(); ++it){
+            delete it->second; 
+        }
+        seedCache.clear();
+        cudaDeviceReset();
+    }
+    auto s10 = chrono::high_resolution_clock::now();
+    auto d9 = s10 - s9;
+    std::cout << "d9 duration: " << chrono::duration_cast<chrono::microseconds>(d9).count() << " micros\n";
+
+    mtx.unlock();
+    
     return result;
 }
-
